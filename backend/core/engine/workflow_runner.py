@@ -13,10 +13,25 @@ from backend.core.guardrails.validator import GuardrailViolation
 
 
 class HumanConfirmRequired(Exception):
-    def __init__(self, message: str, step_id: str):
+    """
+    Raised when a human_confirm step is reached.
+    Carries the full accumulated state and steps_log so the API layer
+    can persist them and resume correctly after user confirmation.
+    """
+    def __init__(
+        self,
+        message: str,
+        step_id: str,
+        state: Optional[Dict[str, Any]] = None,
+        steps_log: Optional[List[Dict[str, Any]]] = None,
+        total_tokens: int = 0,
+    ):
         super().__init__(message)
         self.message = message
         self.step_id = step_id
+        self.state = state or {}
+        self.steps_log = steps_log or []
+        self.total_tokens = total_tokens
 
 
 @dataclass
@@ -65,7 +80,6 @@ def _resolve_template(template: Any, state: Dict[str, Any]) -> Any:
             if isinstance(resolved, (dict, list)):
                 return json.dumps(resolved, ensure_ascii=False)
             return str(resolved)
-
         return _TEMPLATE_RE.sub(replacer, template)
     elif isinstance(template, dict):
         return {k: _resolve_template(v, state) for k, v in template.items()}
@@ -76,7 +90,7 @@ def _resolve_template(template: Any, state: Dict[str, Any]) -> Any:
 
 def _safe_eval(condition: str, state: Dict[str, Any]) -> bool:
     """Safely evaluate a condition expression with state values available."""
-    flat = {}
+    flat: Dict[str, Any] = {}
     for k, v in state.items():
         flat[k] = v
         if isinstance(v, dict):
@@ -94,8 +108,9 @@ class WorkflowRunner:
     """
     Executes workflow / ai_workflow / copilot types.
 
-    Raises HumanConfirmRequired when a human_confirm step is encountered.
-    The API layer must catch this, persist state, and resume later.
+    When a human_confirm step is hit, raises HumanConfirmRequired with the
+    full accumulated state and steps_log attached so the API layer can
+    persist them and resume correctly after user confirmation.
     """
 
     def run(
@@ -107,12 +122,12 @@ class WorkflowRunner:
         resume_state: Optional[Dict[str, Any]] = None,
     ) -> RunResult:
         steps_map = {s["step_id"]: s for s in definition.get("steps", [])}
-        state = resume_state if resume_state is not None else {"input": input_data}
+        # When resuming, start from the full persisted state; fresh run uses only input
+        state = dict(resume_state) if resume_state is not None else {"input": input_data}
         steps_log: List[Dict[str, Any]] = []
         total_tokens = 0
 
         if resume_from_step:
-            # Find the step after the confirmed human_confirm step
             current = self._get_next_after(resume_from_step, steps_map, state)
         else:
             current = self._find_entry_steps(steps_map)
@@ -129,7 +144,14 @@ class WorkflowRunner:
                 t0 = time.time()
                 ctx.guardrails.validate_step(step, state)
 
-                result = self._execute_step(step, state, ctx)
+                try:
+                    result = self._execute_step(step, state, ctx)
+                except HumanConfirmRequired as hcr:
+                    # Enrich with full execution context before propagating to API layer
+                    hcr.state = dict(state)
+                    hcr.steps_log = list(steps_log)
+                    hcr.total_tokens = total_tokens
+                    raise
 
                 if result.output_key:
                     state[result.output_key] = result.output
@@ -201,11 +223,11 @@ class WorkflowRunner:
 
             case "human_confirm":
                 message = _resolve_template(step.get("message_template", "请确认"), state)
+                # State and steps_log are attached in the outer run() loop
                 raise HumanConfirmRequired(message=message, step_id=step["step_id"])
 
             case "sub_executor":
                 sub_input = _resolve_template(step.get("input_mapping", {}), state)
-                # Sub-executor is run inline — import here to avoid circular
                 from backend.core.engine.executor_service import run_executor_inline
                 sub_result = run_executor_inline(step["executor_id"], sub_input, ctx)
                 return StepResult(
@@ -219,26 +241,17 @@ class WorkflowRunner:
                 raise ValueError(f"Unknown step type: {step['type']}")
 
     def _find_entry_steps(self, steps_map: Dict[str, Any]) -> List[str]:
-        """Steps with no incoming edges are entry points."""
         all_ids = set(steps_map.keys())
-        referenced = set()
+        referenced: set = set()
         for step in steps_map.values():
-            for nxt in step.get("next", []):
-                referenced.add(nxt)
-            for nxt in step.get("next_true", []):
-                referenced.add(nxt)
-            for nxt in step.get("next_false", []):
-                referenced.add(nxt)
-            for nxt in step.get("next_on_confirm", []):
-                referenced.add(nxt)
-            for nxt in step.get("next_on_reject", []):
-                referenced.add(nxt)
+            for key in ("next", "next_true", "next_false", "next_on_confirm", "next_on_reject"):
+                for nxt in step.get(key, []):
+                    referenced.add(nxt)
         return list(all_ids - referenced) or list(all_ids)[:1]
 
     def _get_next_after(
         self, step_id: str, steps_map: Dict[str, Any], state: Dict[str, Any]
     ) -> List[str]:
-        """After resuming from human_confirm (confirmed=True), get next_on_confirm."""
         step = steps_map.get(step_id)
         if not step:
             return []
@@ -247,12 +260,9 @@ class WorkflowRunner:
     def _resolve_next(
         self, step: Dict[str, Any], state: Dict[str, Any], result: StepResult
     ) -> List[str]:
-        on_error = step.get("on_error", "stop")
         match step["type"]:
             case "condition":
-                if result.branch:
-                    return step.get("next_true", [])
-                return step.get("next_false", [])
+                return step.get("next_true", []) if result.branch else step.get("next_false", [])
             case "human_confirm":
                 return []
             case _:

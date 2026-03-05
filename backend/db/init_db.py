@@ -1,4 +1,6 @@
-"""Run this once to create all tables (alternative to alembic for dev)."""
+"""Initialize database: extensions first, then all tables."""
+from sqlalchemy import text
+
 from backend.models.base import Base
 from backend.db.session import engine
 
@@ -13,7 +15,16 @@ import backend.models.orchestrator  # noqa
 import backend.models.run  # noqa
 
 
+def init_extensions(conn):
+    """Enable required PostgreSQL extensions before creating tables."""
+    conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn.commit()
+
+
 def init_db():
+    with engine.begin() as conn:
+        init_extensions(conn)
     Base.metadata.create_all(bind=engine)
 
 

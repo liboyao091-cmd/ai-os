@@ -204,13 +204,12 @@ def _run_executor(
         )
 
     except HumanConfirmRequired as hcr:
-        # Pause execution, store state
+        # Persist full execution state so resume can continue from where we left off
         run.status = "waiting_confirm"
         run.paused_step_id = hcr.step_id
-        # Save current steps_log and state (state is in the last step's state_after)
-        # We need to store the runner's state — we'll store input + all outputs so far
-        # For simplicity, store a snapshot in paused_state
-        run.steps_log = []  # will be updated when resumed
+        run.paused_state = hcr.state          # full variable state at pause point
+        run.steps_log = hcr.steps_log         # steps completed before pause
+        run.total_tokens = hcr.total_tokens   # tokens used before pause
         run.duration_ms = int((time.time() - t0) * 1000)
         db.commit()
         db.refresh(run)
@@ -218,8 +217,8 @@ def _run_executor(
             run_id=run.id,
             status="waiting_confirm",
             output={"confirm_message": hcr.message, "step_id": hcr.step_id},
-            steps_log=[],
-            total_tokens=0,
+            steps_log=hcr.steps_log,
+            total_tokens=hcr.total_tokens,
         )
 
     except Exception as exc:
@@ -346,16 +345,19 @@ def confirm_human_step(
     t0 = time.time()
     try:
         ctx = build_context(ex, db, str(current_user.id), str(run.id))
+        # Restore the full state saved at pause time (not just the input)
+        saved_state = run.paused_state or {"input": run.input or {}}
         result = WorkflowRunner().run(
             definition=ex.definition,
             input_data=run.input or {},
             ctx=ctx,
             resume_from_step=run.paused_step_id,
-            resume_state={"input": run.input or {}},
+            resume_state=saved_state,
         )
         run.status = "success"
         run.output = result.output
-        run.steps_log = (run.steps_log or []) + result.steps_log
+        # Prepend pre-pause steps, then append post-resume steps
+        run.steps_log = list(run.steps_log or []) + result.steps_log
         run.total_tokens = (run.total_tokens or 0) + result.total_tokens
         run.duration_ms = (run.duration_ms or 0) + int((time.time() - t0) * 1000)
         run.finished_at = datetime.now(timezone.utc)
