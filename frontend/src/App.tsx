@@ -8,8 +8,10 @@ import { GuardrailsPage } from './pages/foundation/GuardrailsPage'
 import { ExecutorListPage } from './pages/executors/ExecutorListPage'
 import { ExecutorEditorPage } from './pages/executors/ExecutorEditorPage'
 import { OrchestratorListPage } from './pages/orchestrators/OrchestratorListPage'
+import { OrchestratorEditorPage } from './pages/orchestrators/OrchestratorEditorPage'
 import { ReplayPage } from './pages/runs/ReplayPage'
 import { RunsPage } from './pages/runs/RunsPage'
+import { ExecutorRunsPage } from './pages/executors/ExecutorRunsPage'
 
 function MainLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -29,9 +31,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Editor page is full-screen, no sidebar */}
+        {/* Full-screen pages (no sidebar) */}
         <Route path="/executors/new" element={<ExecutorEditorPage />} />
+        <Route path="/executors/:id/runs" element={<ExecutorRunsPage />} />
         <Route path="/executors/:id" element={<ExecutorEditorPage />} />
+        <Route path="/orchestrators/:id" element={<OrchestratorEditorPage />} />
         <Route path="/runs/:runId/replay" element={<ReplayPage />} />
 
         {/* All other pages use MainLayout */}

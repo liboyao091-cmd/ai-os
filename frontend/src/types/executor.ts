@@ -41,22 +41,33 @@ export interface ExecutorCreate {
 
 export interface ExecutorRunResponse {
   run_id: string
+  executor_id?: string
+  orchestrator_id?: string
   status: string
+  is_sandbox: boolean
+  input: Record<string, unknown>
   output?: unknown
   steps_log: StepLog[]
   total_tokens: number
   duration_ms?: number
   error_message?: string
+  paused_step_id?: string
+  started_at: string
+  finished_at?: string
 }
 
 export interface StepLog {
   step_id?: string
   name?: string
   type: string
+  step_type?: string
+  status?: string
   input?: unknown
   output?: unknown
   duration_ms?: number
   tokens?: number
+  tokens_used?: number
+  error?: string
   timestamp?: string
   state_after?: Record<string, unknown>
 }

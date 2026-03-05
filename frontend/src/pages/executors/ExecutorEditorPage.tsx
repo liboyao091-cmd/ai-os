@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save, Play } from 'lucide-react'
+import { ArrowLeft, Save, Play, GitBranch, Code, History } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { executorsApi } from '../../api/executors'
 import { Executor, ExecutorCreate, ExecutorType } from '../../types/executor'
 import { SandboxPanel } from '../../components/shared/SandboxPanel'
 import { toolsApi } from '../../api/tools'
 import { Tool } from '../../types/tool'
+import { WorkflowCanvas } from '../../components/workflow/WorkflowCanvas'
+
+type EditorTab = 'json' | 'canvas'
+const CANVAS_TYPES: ExecutorType[] = ['workflow', 'ai_workflow', 'copilot']
 
 const EXECUTOR_TYPE_OPTIONS: { value: ExecutorType; label: string; desc: string }[] = [
   { value: 'workflow', label: 'Workflow', desc: '纯步骤流程，无 LLM' },
@@ -80,6 +84,7 @@ export function ExecutorEditorPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [savedId, setSavedId] = useState<string | null>(isNew ? null : id || null)
+  const [editorTab, setEditorTab] = useState<EditorTab>('json')
 
   useEffect(() => {
     toolsApi.list().then(setTools).catch(() => {})
@@ -230,26 +235,55 @@ export function ExecutorEditorPage() {
         {/* Center: definition editor */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="px-4 py-2 border-b border-gray-200 bg-white flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Definition (JSON)</span>
-            <span className="text-xs text-gray-400">
-              Phase 1: JSON 编辑器 / Phase 2: 可视化画布
-            </span>
+            {/* Tab switcher */}
+            <button
+              onClick={() => setEditorTab('json')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${editorTab === 'json' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+              <Code size={13} /> JSON 编辑
+            </button>
+            {CANVAS_TYPES.includes(executorType) && (
+              <button
+                onClick={() => setEditorTab('canvas')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${editorTab === 'canvas' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+              >
+                <GitBranch size={13} /> 可视化画布
+              </button>
+            )}
+            {savedId && (
+              <button
+                onClick={() => navigate(`/executors/${savedId}/runs`)}
+                className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-md text-xs text-gray-500 hover:bg-gray-50"
+              >
+                <History size={13} /> 运行历史
+              </button>
+            )}
           </div>
-          <div className="flex-1">
-            <Editor
-              height="100%"
-              defaultLanguage="json"
-              value={definitionJson}
-              onChange={v => setDefinitionJson(v || '')}
-              theme="vs-light"
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-              }}
-            />
+          <div className="flex-1 overflow-hidden">
+            {editorTab === 'json' ? (
+              <Editor
+                height="100%"
+                defaultLanguage="json"
+                value={definitionJson}
+                onChange={v => setDefinitionJson(v || '')}
+                theme="vs-light"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                }}
+              />
+            ) : (
+              <WorkflowCanvas
+                key={savedId || 'new'}
+                definitionJson={definitionJson}
+                onChange={setDefinitionJson}
+                executorType={executorType as 'workflow' | 'ai_workflow' | 'copilot'}
+                tools={tools.map(t => ({ id: t.id, name: t.name }))}
+              />
+            )}
           </div>
         </div>
 
