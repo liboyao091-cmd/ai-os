@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Wrench, BookOpen, Cpu, GitBranch, Network, History, Settings } from 'lucide-react'
+import { Wrench, BookOpen, Cpu, GitBranch, Network, History, Settings, Store } from 'lucide-react'
 import clsx from 'clsx'
 
 const nav = [
@@ -23,6 +23,10 @@ const nav = [
   {
     section: '记录',
     items: [{ label: '历史运行', to: '/runs', icon: History }],
+  },
+  {
+    section: '市场',
+    items: [{ label: '资产市场', to: '/marketplace', icon: Store }],
   },
 ]
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save, Play, GitBranch, Code, History } from 'lucide-react'
+import { ArrowLeft, Save, Play, GitBranch, Code, History, Database } from 'lucide-react'
 import Editor from '@monaco-editor/react'
 import { executorsApi } from '../../api/executors'
 import { Executor, ExecutorCreate, ExecutorType } from '../../types/executor'
@@ -8,6 +8,7 @@ import { SandboxPanel } from '../../components/shared/SandboxPanel'
 import { toolsApi } from '../../api/tools'
 import { Tool } from '../../types/tool'
 import { WorkflowCanvas } from '../../components/workflow/WorkflowCanvas'
+import { knowledgeApi, KnowledgeSpace } from '../../api/knowledge'
 
 type EditorTab = 'json' | 'canvas'
 const CANVAS_TYPES: ExecutorType[] = ['workflow', 'ai_workflow', 'copilot']
@@ -56,8 +57,12 @@ const DEFINITION_TEMPLATES: Record<ExecutorType, object> = {
     memory_config: { use_knowledge: false, use_project_memory: false, use_style_memory: false },
   },
   multi_agent: {
-    agents: [],
-    coordinator_prompt: '协调多个 Agent 完成任务',
+    coordinator_prompt: '你是多智能体系统的协调者，负责拆解任务并综合各 Agent 的结果。',
+    task_template: '{{input.goal}}',
+    agents: [
+      { name: '研究员', role: '负责收集和分析数据' },
+      { name: '撰写者', role: '负责根据分析结果撰写报告' },
+    ],
   },
   copilot: {
     steps: [],
@@ -80,7 +85,9 @@ export function ExecutorEditorPage() {
     JSON.stringify(DEFINITION_TEMPLATES.ai_workflow, null, 2)
   )
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([])
+  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<string[]>([])
   const [tools, setTools] = useState<Tool[]>([])
+  const [knowledgeSpaces, setKnowledgeSpaces] = useState<KnowledgeSpace[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [savedId, setSavedId] = useState<string | null>(isNew ? null : id || null)
@@ -88,6 +95,7 @@ export function ExecutorEditorPage() {
 
   useEffect(() => {
     toolsApi.list().then(setTools).catch(() => {})
+    knowledgeApi.listSpaces().then(setKnowledgeSpaces).catch(() => {})
     if (!isNew && id) {
       executorsApi.get(id).then(ex => {
         setExecutor(ex)
@@ -97,6 +105,7 @@ export function ExecutorEditorPage() {
         setVisibility(ex.visibility as 'private' | 'team' | 'public')
         setDefinitionJson(JSON.stringify(ex.definition, null, 2))
         setSelectedToolIds(ex.tool_ids)
+        setSelectedKnowledgeIds((ex as unknown as { knowledge_ids: string[] }).knowledge_ids || [])
         setSavedId(ex.id)
       })
     }
@@ -121,7 +130,7 @@ export function ExecutorEditorPage() {
         definition,
         visibility,
         tool_ids: selectedToolIds,
-        knowledge_ids: [],
+        knowledge_ids: selectedKnowledgeIds,
         tags: [],
       }
       if (isNew || !savedId) {
@@ -208,7 +217,7 @@ export function ExecutorEditorPage() {
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
               绑定工具 ({selectedToolIds.length})
             </label>
-            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+            <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
               {tools.map(t => (
                 <label key={t.id} className="flex items-center gap-2 text-xs cursor-pointer">
                   <input
@@ -230,12 +239,41 @@ export function ExecutorEditorPage() {
               )}
             </div>
           </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              <span className="flex items-center gap-1">
+                <Database size={11} /> 绑定知识库 ({selectedKnowledgeIds.length})
+              </span>
+            </label>
+            <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+              {knowledgeSpaces.map(ks => (
+                <label key={ks.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedKnowledgeIds.includes(ks.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedKnowledgeIds(ids => [...ids, ks.id])
+                      } else {
+                        setSelectedKnowledgeIds(ids => ids.filter(id => id !== ks.id))
+                      }
+                    }}
+                  />
+                  <span className="truncate">{ks.name}</span>
+                  <span className="text-gray-400 shrink-0">{ks.visibility}</span>
+                </label>
+              ))}
+              {knowledgeSpaces.length === 0 && (
+                <div className="text-xs text-gray-400">暂无知识库</div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Center: definition editor */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="px-4 py-2 border-b border-gray-200 bg-white flex items-center gap-2">
-            {/* Tab switcher */}
             <button
               onClick={() => setEditorTab('json')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${editorTab === 'json' ? 'bg-gray-100 text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}

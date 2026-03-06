@@ -5,12 +5,12 @@ Used by the API layer and by sub_executor steps.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from backend.core.engine.context import RunContext
 from backend.core.engine.workflow_runner import RunResult, WorkflowRunner
 from backend.core.engine.agent_runner import AgentRunner
+from backend.core.engine.multi_agent_runner import MultiAgentRunner
 from backend.core.tools.invoker import ToolInvoker
 from backend.core.llm.gateway import LLMGateway
 from backend.core.rag.retriever import RAGRetriever
@@ -19,7 +19,6 @@ from backend.core.guardrails.validator import GuardrailValidator
 
 def build_context(executor, db, user_id: str, run_id: str, is_sandbox: bool = False) -> RunContext:
     """Build a RunContext from a loaded Executor ORM object."""
-    # Load tools
     tools: Dict[str, ToolInvoker] = {}
     if executor.tool_ids:
         from backend.models.tool import Tool
@@ -28,7 +27,6 @@ def build_context(executor, db, user_id: str, run_id: str, is_sandbox: bool = Fa
             if tool:
                 tools[str(tid)] = ToolInvoker(tool)
 
-    # Load model policy
     model_policy: Dict[str, Any] = {}
     if executor.model_policy_id:
         from backend.models.model_policy import ModelPolicy
@@ -41,7 +39,6 @@ def build_context(executor, db, user_id: str, run_id: str, is_sandbox: bool = Fa
                 "params_override": policy.params_override or {},
             }
 
-    # Load guardrail
     guardrail_rules: Dict[str, Any] = {}
     if executor.guardrail_id:
         from backend.models.guardrail import GuardrailRuleset
@@ -49,7 +46,6 @@ def build_context(executor, db, user_id: str, run_id: str, is_sandbox: bool = Fa
         if gr:
             guardrail_rules = gr.rules or {}
 
-    # Build knowledge IDs as strings
     knowledge_ids = [str(kid) for kid in (executor.knowledge_ids or [])]
 
     llm = LLMGateway(model_policy=model_policy)
@@ -69,10 +65,7 @@ def build_context(executor, db, user_id: str, run_id: str, is_sandbox: bool = Fa
 
 
 def run_executor_inline(executor_id: str, input_data: Dict[str, Any], ctx: RunContext) -> RunResult:
-    """
-    Run a sub-executor inline (within the same thread/process).
-    Used by sub_executor step type.
-    """
+    """Run a sub-executor inline. Used by sub_executor step type."""
     from backend.db.session import SessionLocal
     from backend.models.executor import Executor
 
@@ -91,7 +84,9 @@ def _dispatch_runner(executor, input_data: Dict[str, Any], ctx: RunContext) -> R
     match executor.executor_type:
         case "workflow" | "ai_workflow" | "copilot":
             return WorkflowRunner().run(executor.definition, input_data, ctx)
-        case "agent" | "multi_agent":
+        case "agent":
             return AgentRunner().run(executor.definition, input_data, ctx)
+        case "multi_agent":
+            return MultiAgentRunner().run(executor.definition, input_data, ctx)
         case _:
             raise ValueError(f"Unknown executor_type: {executor.executor_type}")

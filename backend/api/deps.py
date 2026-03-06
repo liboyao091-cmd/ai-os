@@ -25,3 +25,19 @@ def get_current_user(
         db.commit()
         db.refresh(user)
     return user
+
+
+def get_current_user_query(
+    user_id: str = None,
+    db: Session = Depends(get_db),
+) -> User:
+    """Resolve user from query param — used for SSE endpoints where headers can't be set."""
+    if not user_id:
+        raise HTTPException(401, "user_id query param required")
+    user = db.query(User).filter(User.bytedance_uid == user_id).first()
+    if not user:
+        user = User(bytedance_uid=user_id, name=user_id)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user

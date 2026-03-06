@@ -11,6 +11,8 @@ interface SandboxPanelProps {
 }
 
 const TERMINAL = new Set(['success', 'failed', 'cancelled'])
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+const USER_ID = import.meta.env.VITE_USER_ID || 'dev-user-001'
 
 export function SandboxPanel({ executorId }: SandboxPanelProps) {
   const navigate = useNavigate()
@@ -20,30 +22,65 @@ export function SandboxPanel({ executorId }: SandboxPanelProps) {
   const [selectedStep, setSelectedStep] = useState<StepLog | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [jsonError, setJsonError] = useState('')
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const esRef = useRef<EventSource | null>(null)
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+  const stopSSE = useCallback(() => {
+    if (esRef.current) {
+      esRef.current.close()
+      esRef.current = null
+    }
   }, [])
 
-  useEffect(() => () => stopPolling(), [stopPolling])
+  useEffect(() => () => stopSSE(), [stopSSE])
 
-  const startPolling = useCallback((runId: string) => {
-    stopPolling()
-    pollRef.current = setInterval(async () => {
+  const startSSE = useCallback((runId: string) => {
+    stopSSE()
+    const url = `${BASE_URL}/runs/${runId}/stream?user_id=${encodeURIComponent(USER_ID)}`
+    const es = new EventSource(url)
+    esRef.current = es
+
+    es.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data)
+        if (msg.type === 'step') {
+          setResult(r => r ? { ...r, steps_log: [...(r.steps_log || []), msg.step] } : r)
+        } else if (msg.type === 'status') {
+          setResult(r => r ? {
+            ...r,
+            status: msg.status,
+            total_tokens: msg.total_tokens ?? r.total_tokens,
+            duration_ms: msg.duration_ms ?? r.duration_ms,
+            output: msg.output ?? r.output,
+            error_message: msg.error_message ?? r.error_message,
+          } : r)
+          if (TERMINAL.has(msg.status) || msg.status === 'waiting_confirm') {
+            setRunning(false)
+          }
+        } else if (msg.type === 'done') {
+          stopSSE()
+          setRunning(false)
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    es.onerror = async () => {
+      stopSSE()
+      // Fallback: fetch final state
       try {
         const updated = await runsApi.get(runId)
-        const mapped: ExecutorRunResponse = {
-          run_id: updated.id, status: updated.status, output: updated.output,
-          steps_log: updated.steps_log, total_tokens: updated.total_tokens,
-          duration_ms: updated.duration_ms, error_message: updated.error_message,
-        }
-        setResult(mapped)
-        if (TERMINAL.has(updated.status)) { stopPolling(); setRunning(false) }
-        else if (updated.status === 'waiting_confirm') { stopPolling() }
-      } catch { stopPolling(); setRunning(false) }
-    }, 1200)
-  }, [stopPolling])
+        setResult(r => r ? {
+          ...r,
+          status: updated.status,
+          output: updated.output,
+          steps_log: updated.steps_log,
+          total_tokens: updated.total_tokens,
+          duration_ms: updated.duration_ms,
+          error_message: updated.error_message,
+        } : r)
+      } catch { /* ignore */ }
+      setRunning(false)
+    }
+  }, [stopSSE])
 
   const handleRun = async () => {
     setJsonError('')
@@ -51,14 +88,14 @@ export function SandboxPanel({ executorId }: SandboxPanelProps) {
     try { input = JSON.parse(inputJson) } catch {
       setJsonError('JSON 格式错误，请检查输入'); return
     }
-    setRunning(true); setResult(null); setSelectedStep(null); stopPolling()
+    setRunning(true); setResult(null); setSelectedStep(null); stopSSE()
     try {
       const res = await executorsApi.sandbox(executorId, input)
       setResult(res)
       if (!res.run_id || TERMINAL.has(res.status) || res.status === 'waiting_confirm') {
         setRunning(false)
       } else {
-        startPolling(res.run_id)
+        startSSE(res.run_id)
       }
     } catch (e: unknown) {
       setResult({ run_id: '', status: 'failed', steps_log: [], total_tokens: 0,
@@ -73,7 +110,7 @@ export function SandboxPanel({ executorId }: SandboxPanelProps) {
     try {
       const res = await executorsApi.confirm(executorId, result.run_id, confirmed)
       setResult(res)
-      if (res.run_id && !TERMINAL.has(res.status)) { setRunning(true); startPolling(res.run_id) }
+      if (res.run_id && !TERMINAL.has(res.status)) { setRunning(true); startSSE(res.run_id) }
     } catch (e: unknown) {
       setResult(r => r ? { ...r, status: 'failed', error_message: e instanceof Error ? e.message : String(e) } : r)
     } finally { setConfirming(false) }

@@ -34,3 +34,10 @@ class ReplayResponse(BaseModel):
     total_tokens: int
     duration_ms: Optional[int]
     status: str
+
+
+class PaginatedRunsResponse(BaseModel):
+    items: List[RunRead]
+    total: int
+    page: int
+    size: int
