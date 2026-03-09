@@ -1,8 +1,14 @@
 import { NavLink } from 'react-router-dom'
-import { Wrench, BookOpen, Cpu, GitBranch, Network, History, Settings } from 'lucide-react'
+import { Wrench, BookOpen, Cpu, GitBranch, Network, History, Settings, FolderOpen } from 'lucide-react'
 import clsx from 'clsx'
 
 const nav = [
+  {
+    section: '项目',
+    items: [
+      { label: '我的项目', to: '/projects', icon: FolderOpen },
+    ],
+  },
   {
     section: '底座层',
     items: [

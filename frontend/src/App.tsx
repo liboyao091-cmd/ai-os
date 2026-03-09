@@ -12,6 +12,7 @@ import { OrchestratorEditorPage } from './pages/orchestrators/OrchestratorEditor
 import { ReplayPage } from './pages/runs/ReplayPage'
 import { RunsPage } from './pages/runs/RunsPage'
 import { ExecutorRunsPage } from './pages/executors/ExecutorRunsPage'
+import { ProjectsPage } from './pages/projects/ProjectsPage'
 
 function MainLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="/executors" element={<ExecutorListPage />} />
               <Route path="/orchestrators" element={<OrchestratorListPage />} />
               <Route path="/runs" element={<RunsPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
             </Routes>
           </MainLayout>
         } />

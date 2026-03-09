@@ -43,7 +43,7 @@ logging.config.dictConfig({
 
 logger = logging.getLogger("ds_ai_os")
 
-from backend.api import tools, knowledge, executors, orchestrators, runs, model_policies, guardrails
+from backend.api import tools, knowledge, executors, orchestrators, runs, model_policies, guardrails, projects
 
 
 @asynccontextmanager
@@ -107,6 +107,7 @@ app.include_router(orchestrators.router, prefix=PREFIX)
 app.include_router(runs.router, prefix=PREFIX)
 app.include_router(model_policies.router, prefix=PREFIX)
 app.include_router(guardrails.router, prefix=PREFIX)
+app.include_router(projects.router, prefix=PREFIX)
 
 
 @app.get("/health")
